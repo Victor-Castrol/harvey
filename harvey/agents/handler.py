@@ -10,6 +10,7 @@ sending domain while nobody's watching.
 import html
 import logging
 import re
+import unicodedata
 from datetime import datetime, timezone
 
 from harvey.brain import Brain, BrainUnavailable
@@ -64,6 +65,41 @@ OPT_OUT_PATTERNS = (
     "never contact",
     "delete my info",
     "delete my data",
+    # Brazilian Portuguese, written without accents: matched against _fold()ed text.
+    "descadastr",
+    "me remova",
+    "me remove da",
+    "me remove do",
+    "me tire da",
+    "me tira da",
+    "me tirem da",
+    "remover meu email",
+    "remover meu e-mail",
+    "remova meu email",
+    "remova meu e-mail",
+    "nao quero mais receber",
+    "nao quero receber mais",
+    "nao quero receber email",
+    "nao quero receber e-mail",
+    "nao quero receber esse",
+    "pare de enviar",
+    "parem de enviar",
+    "pare de me enviar",
+    "parem de me enviar",
+    "pare de mandar",
+    "parem de mandar",
+    "pare de me mandar",
+    "para de me mandar",
+    "nao me envie mais",
+    "nao me mande mais",
+    "nao me mandem mais",
+    "nao entre em contato",
+    "nao entrem em contato",
+    "nao me contate",
+    "nao me procure",
+    "apague meus dados",
+    "excluir meus dados",
+    "exclua meus dados",
 )
 # "No thanks" (what cold email's footer asks for) as a phrase: not "no
 # Thanksgiving", "Bruno / Thanks," or "yes or no, thanks".
@@ -72,9 +108,13 @@ NO_THANKS_RE = re.compile(
     r"(?<!\bor )\bno,?[ \t]+thank(?:s|[ \t]+you)\b(?![ \t]+(?:needed|necessary|required))")
 # A reply that says only this (signature aside) is an opt-out ("Reply STOP").
 BARE_OPT_OUTS = {"stop", "unsubscribe", "remove", "remove me", "opt out",
-                 "no thanks", "no thank you"}
+                 "no thanks", "no thank you",
+                 # pt-BR, without accents (compared after _fold)
+                 "sair", "descadastrar", "remover", "pare", "parar",
+                 "nao obrigado", "nao obrigada", "nao tenho interesse"}
 _MOBILE_SIGNATURE_RE = re.compile(
-    r"^[ \t]*(?:sent from my \w[^\n]*|get outlook for \w[^\n]*|sent from \w+ mail[^\n]*)$",
+    r"^[ \t]*(?:sent from my \w[^\n]*|get outlook for \w[^\n]*|sent from \w+ mail[^\n]*"
+    r"|enviado do meu \w[^\n]*|enviado do \w+ mail[^\n]*|obter o outlook para \w[^\n]*)$",
     re.IGNORECASE | re.MULTILINE)
 # A line of their reply at least this long that repeats what Harvey wrote
 # for this person is our text, not theirs. Shorter unmarked lines are always
@@ -136,15 +176,22 @@ class OurText:
         return "\n".join(kept)
 
 
+def _fold(text: str) -> str:
+    """Accents dropped ("não" -> "nao"), so a pt-BR opt-out matches however
+    it was typed."""
+    return "".join(c for c in unicodedata.normalize("NFKD", text)
+                   if not unicodedata.combining(c))
+
+
 def _is_opt_out(their_text: str, own_words: str) -> bool:
     """their_text: everything they wrote, our text removed. own_words: their
     reply without the quote. Longer phrases match across a line wrap; "no
     thanks" only within a line."""
-    if any(p in _flat(their_text) for p in OPT_OUT_PATTERNS):
+    if any(p in _fold(_flat(their_text)) for p in OPT_OUT_PATTERNS):
         return True
     if any(NO_THANKS_RE.search(_flat(line)) for line in their_text.split("\n")):
         return True
-    bare = _flat(_MOBILE_SIGNATURE_RE.sub("", own_words or ""))
+    bare = _fold(_flat(_MOBILE_SIGNATURE_RE.sub("", own_words or "")))
     return re.sub(r"[^\w\s-]", "", bare).strip() in BARE_OPT_OUTS
 
 # Phrases that mean a human must take over. Never auto-reply to these.

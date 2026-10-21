@@ -539,6 +539,60 @@ async def test_every_footer_harvey_used_stays_ours_after_the_line_changes(state)
     assert status != "opted_out"
 
 
+# ── Brazilian Portuguese ──
+
+PT_LINE = 'Se não fizer sentido pra você, é só responder "sair" que eu não escrevo mais.'
+
+
+def test_a_portuguese_opt_out_line_is_accepted():
+    import pydantic
+    for good in (PT_LINE, "Responda SAIR e eu não escrevo mais.",
+                 "Não faz sentido? Responde com descadastrar.",
+                 "É só responder STOP que eu paro."):
+        assert ComplianceConfig(opt_out_line=good).opt_out_line == good
+    for bad in ("Responda qualquer coisa e eu paro.", "Para sair, acesse https://x.co"):
+        with pytest.raises(pydantic.ValidationError):
+            ComplianceConfig(opt_out_line=bad)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("body", [
+    "SAIR", "Sair.", "descadastrar", "Não, obrigado.", "nao obrigada",
+    "Não tenho interesse.", "Pare\n\nEnviado do meu iPhone",
+    "Por favor, me descadastre da lista.",
+    "Não quero mais receber esses emails.",
+    "Oi, parem de me enviar mensagem.",
+    "Me tira da sua lista por favor",
+    "Não entre em contato\nde novo.",
+], ids=["sair", "sair-dot", "descadastrar", "nao-obrigado", "nao-obrigada-no-accent",
+        "sem-interesse", "pare-iphone", "descadastre", "nao-quero-mais", "parem",
+        "me-tira", "wrapped-nao-entre"])
+async def test_portuguese_opt_outs_are_caught_without_the_model(state, body):
+    status, prompts = await _reply(state, body)
+    assert status == "opted_out" and prompts == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("body", [
+    "Tenho interesse sim, pode me chamar no WhatsApp.",
+    "Não quero receber ligação, me manda por WhatsApp.",
+    "Sair do papel é o que preciso. Quanto custa?",
+    "Pode me mandar a proposta? Não, obrigado pelo contato, mas qual o prazo?",
+], ids=["interessado", "sem-ligacao", "sair-do-papel", "obrigado-mid-sentence"])
+async def test_portuguese_replies_that_are_not_opt_outs(state, body):
+    status, _ = await _reply(state, body)
+    assert status != "opted_out"
+
+
+@pytest.mark.asyncio
+async def test_our_quoted_portuguese_footer_is_not_an_opt_out(state):
+    sent = "Uma nota curta. Pergunta?\n\n" + ADDRESS + "\n" + PT_LINE
+    body = ("Tenho interesse, me chama.\n\nEm ter., 14 de out. Harvey escreveu:\n> "
+            + sent.replace("\n", "\n> "))
+    status, _ = await _reply_after_sending(state, body, sent_bodies=[sent], line=PT_LINE)
+    assert status != "opted_out"
+
+
 @pytest.mark.asyncio
 async def test_template_lines_with_merge_tags_are_recognised_when_quoted(state):
     import json
